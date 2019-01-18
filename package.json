@@ -15,7 +15,7 @@
   "version": "0.3.2",
   "publisher": "GitHub",
   "engines": {
-    "vscode": "^1.30.0"
+    "vscode": "^1.31.0"
   },
   "categories": [
     "Other"
@@ -194,6 +194,14 @@
         "when": "github:inReviewMode"
       },
       {
+        "command": "pr.openDescriptionToTheSide",
+        "title": "Open Pull Request Description to the Side",
+        "icon": {
+          "light": "resources/icons/light/split-editor-horizontal.svg",
+          "dark": "resources/icons/dark/split-editor-horizontal-inverse.svg"
+        }
+      },
+      {
         "command": "review.openFile",
         "title": "Open File",
         "icon": {
@@ -286,6 +294,10 @@
           "when": "false"
         },
         {
+          "command": "pr.openDescriptionToTheSide",
+          "when": "false"
+        },
+        {
           "command": "pr.openDescription",
           "when": "config.git.enabled && github:inReviewMode"
         },
@@ -347,6 +359,11 @@
         {
           "command": "pr.openFileInGitHub",
           "when": "view =~ /(pr|prStatus)/ && viewItem =~ /filechange/"
+        },
+        {
+          "command": "pr.openDescriptionToTheSide",
+          "group": "inline",
+          "when": "view =~ /(pr|prStatus)/ && viewItem =~ /description/"
         },
         {
           "command": "review.openFile",
