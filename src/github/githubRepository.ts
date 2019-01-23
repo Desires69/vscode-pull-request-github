@@ -11,7 +11,7 @@ import { PRType, IGitHubRepository } from './interface';
 import { PullRequestModel } from './pullRequestModel';
 import { CredentialStore, GitHub } from './credentials';
 import { AuthenticationError } from '../common/authentication';
-import { QueryOptions, MutationOptions, ApolloQueryResult } from 'apollo-boost';
+import { QueryOptions, MutationOptions, ApolloQueryResult, NetworkStatus } from 'apollo-boost';
 import { convertRESTPullRequestToRawPullRequest } from './utils';
 
 export const PULL_REQUEST_PAGE_SIZE = 20;
@@ -25,12 +25,12 @@ export interface PullRequestData {
 
 export class GitHubRepository implements IGitHubRepository {
 	static ID = 'GitHubRepository';
-	private _hub: GitHub;
+	private _hub: GitHub | undefined;
 	private _initialized: boolean;
 	private _metadata: any;
 
 	public get hub(): GitHub {
-		if (this._hub === undefined) {
+		if (!this._hub) {
 			if (!this._initialized) {
 				throw new Error('Call ensure() before accessing this property.');
 			} else {
@@ -55,7 +55,12 @@ export class GitHubRepository implements IGitHubRepository {
 		const gql = this.hub && this.hub.graphql;
 		if (!gql) {
 			Logger.debug(`Not available for query: ${query}`, GRAPHQL_COMPONENT_ID);
-			return null;
+			return {
+				data: null,
+				loading: false,
+				networkStatus: NetworkStatus.error,
+				stale: false
+			} as any;
 		}
 
 		Logger.debug(`Request: ${JSON.stringify(query, null, 2)}`, GRAPHQL_COMPONENT_ID);
@@ -68,7 +73,12 @@ export class GitHubRepository implements IGitHubRepository {
 		const gql = this.hub && this.hub.graphql;
 		if (!gql) {
 			Logger.debug(`Not available for query: ${mutation}`, GRAPHQL_COMPONENT_ID);
-			return null;
+			return {
+				data: null,
+				loading: false,
+				networkStatus: NetworkStatus.error,
+				stale: false
+			} as any;
 		}
 
 		Logger.debug(`Request: ${JSON.stringify(mutation, null, 2)}`, GRAPHQL_COMPONENT_ID);
@@ -96,7 +106,7 @@ export class GitHubRepository implements IGitHubRepository {
 	async resolveRemote(): Promise<void> {
 		try {
 			const {clone_url} = await this.getMetadata();
-			this.remote = parseRemote(this.remote.remoteName, clone_url, this.remote.gitProtocol);
+			this.remote = parseRemote(this.remote.remoteName, clone_url, this.remote.gitProtocol)!;
 		} catch (e) {
 			Logger.appendLine(`Unable to resolve remote: ${e}`);
 		}
@@ -142,28 +152,11 @@ export class GitHubRepository implements IGitHubRepository {
 		return 'master';
 	}
 
-	async getBranch(branchName: string): Promise<Octokit.ReposGetBranchResponse> {
-		try {
-			Logger.debug(`Fetch branch ${branchName} - enter`, GitHubRepository.ID);
-			const { octokit, remote } = await this.ensure();
-			const { data } = await octokit.repos.getBranch({
-				owner: remote.owner,
-				repo: remote.repositoryName,
-				branch: branchName
-			});
-			Logger.debug(`Fetch branch ${branchName} - done`, GitHubRepository.ID);
-
-			return data;
-		} catch (e) {
-			Logger.appendLine(`Fetching branch ${branchName} failed`, GitHubRepository.ID);
-		}
-	}
-
-	async getPullRequests(prType: PRType, page?: number): Promise<PullRequestData> {
+	async getPullRequests(prType: PRType, page?: number): Promise<PullRequestData | undefined> {
 		return prType === PRType.All ? this.getAllPullRequests(page) : this.getPullRequestsForCategory(prType, page);
 	}
 
-	private async getAllPullRequests(page?: number): Promise<PullRequestData> {
+	private async getAllPullRequests(page?: number): Promise<PullRequestData | undefined> {
 		try {
 			Logger.debug(`Fetch all pull requests - enter`, GitHubRepository.ID);
 			const { octokit, remote } = await this.ensure();
@@ -189,7 +182,7 @@ export class GitHubRepository implements IGitHubRepository {
 						return new PullRequestModel(this, this.remote, item);
 					}
 				)
-				.filter(item => item !== null);
+				.filter(item => item !== null) as PullRequestModel[];
 
 			Logger.debug(`Fetch all pull requests - done`, GitHubRepository.ID);
 			return {
@@ -205,11 +198,9 @@ export class GitHubRepository implements IGitHubRepository {
 				throw e;
 			}
 		}
-
-		return null;
 	}
 
-	private async getPullRequestsForCategory(prType: PRType, page: number): Promise<PullRequestData> {
+	private async getPullRequestsForCategory(prType: PRType, page?: number): Promise<PullRequestData | undefined> {
 		try {
 			Logger.debug(`Fetch pull request catogory ${PRType[prType]} - enter`, GitHubRepository.ID);
 			const { octokit, remote } = await this.ensure();
@@ -221,8 +212,8 @@ export class GitHubRepository implements IGitHubRepository {
 				per_page: PULL_REQUEST_PAGE_SIZE,
 				page: page || 1
 			});
-			let promises = [];
-			data.items.forEach(item => {
+			let promises: Promise<Octokit.Response<Octokit.PullRequestsGetResponse>>[] = [];
+			data.items.forEach((item: any /** unluckily Octokit.AnyResponse */) => {
 				promises.push(new Promise(async (resolve, reject) => {
 					let prData = await octokit.pullRequests.get({
 						owner: remote.owner,
@@ -241,7 +232,7 @@ export class GitHubRepository implements IGitHubRepository {
 						return null;
 					}
 					return new PullRequestModel(this, this.remote, convertRESTPullRequestToRawPullRequest(item.data));
-				}).filter(item => item !== null);
+				}).filter(item => item !== null) as PullRequestModel[];
 			});
 			Logger.debug(`Fetch pull request catogory ${PRType[prType]} - done`, GitHubRepository.ID);
 
@@ -260,7 +251,7 @@ export class GitHubRepository implements IGitHubRepository {
 		}
 	}
 
-	async getPullRequest(id: number): Promise<PullRequestModel> {
+	async getPullRequest(id: number): Promise<PullRequestModel | undefined> {
 		try {
 			Logger.debug(`Fetch pull request ${id} - enter`, GitHubRepository.ID);
 			const { octokit, remote } = await this.ensure();
@@ -273,7 +264,7 @@ export class GitHubRepository implements IGitHubRepository {
 
 			if (!data.head.repo) {
 				Logger.appendLine('The remote branch for this PR was already deleted.', GitHubRepository.ID);
-				return null;
+				return;
 			}
 
 			let item = convertRESTPullRequestToRawPullRequest(data);
@@ -281,7 +272,7 @@ export class GitHubRepository implements IGitHubRepository {
 			return new PullRequestModel(this, remote, item);
 		} catch (e) {
 			Logger.appendLine(`GithubRepository> Unable to fetch PR: ${e}`);
-			return null;
+			return;
 		}
 	}
 
